@@ -1,10 +1,14 @@
 <?php
 
-namespace Console;
+namespace Pifeifei\PredisCli;
 
+// use http\Client;
+use Predis\Client as Predis;
+use Predis\Response\ServerException;
 use Symfony\Component\Console\Command\Command as SymfonyCommand;
 use Symfony\Component\Console\Input\Input;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\Output;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
@@ -12,15 +16,51 @@ use Symfony\Component\Console\Question\Question;
 
 class RedisCommand extends SymfonyCommand
 {
-    /** @var \Redis */
+    /*
+     * Examples of the following constants in the various configurations they can be in
+     *
+     * releases (phar):
+     * const VERSION = '1.8.2';
+     * const BRANCH_ALIAS_VERSION = '';
+     * const RELEASE_DATE = '2019-01-29 15:00:53';
+     * const SOURCE_VERSION = '';
+     *
+     * snapshot builds (phar):
+     * const VERSION = 'd3873a05650e168251067d9648845c220c50e2d7';
+     * const BRANCH_ALIAS_VERSION = '1.9-dev';
+     * const RELEASE_DATE = '2019-02-20 07:43:56';
+     * const SOURCE_VERSION = '';
+     *
+     * source (git clone):
+     * const VERSION = '@package_version@';
+     * const BRANCH_ALIAS_VERSION = '@package_branch_alias_version@';
+     * const RELEASE_DATE = '@release_date@';
+     * const SOURCE_VERSION = '1.8-dev+source';
+     */
+    const VERSION = '@package_version@';
+    const BRANCH_ALIAS_VERSION = '@package_branch_alias_version@';
+    const RELEASE_DATE = '@release_date@';
+    const SOURCE_VERSION = '1.0.1-dev+source';
+
+    /**
+     * @var \Predis\Client
+     */
     protected $redis;
 
     protected $host;
     protected $port;
+    protected $password;
+    protected $socket;
     protected $db = '-';
     protected $version = '';// 标记下redis-server版本
     protected $pageNumber = 50;//分页显示,每页数量
-    protected $history = [ //命令历史,感觉应该控制下总体数量,暂时1000条,否则把内存撑爆了就太搞笑了..
+
+    /**
+     * 命令历史,感觉应该控制下总体数量,暂时1000条,否则把内存撑爆了就太搞笑了..
+     *
+     * @var array
+     */
+    protected $history = [
                            'help',
                            'ls',
                            'get',
@@ -33,19 +73,37 @@ class RedisCommand extends SymfonyCommand
                            'ttl',
                            'exit',
     ];
-    /** @var Input */
+    /**
+     * @var \Symfony\Component\Console\Input\Input
+     */
     protected $input;
-    /** @var Output */
-    protected $output;
-    protected $keys = [];// 记录下已有key,方便输入
 
-    /** @var CustomStyle */
+    /**
+     * @var \Symfony\Component\Console\Output\Output
+     */
+    protected $output;
+
+    /**
+     * 记录下已有key,方便输入
+     *
+     * @var array
+     */
+    protected $keys = [];
+
+    /**
+     * @var CustomStyle
+     */
     protected $io;
 
     public function configure()
     {
         $this->setName('redis-cli')
-            ->setDescription('<info>PHP的redis命令行客户端</info>');
+            ->addOption('hostname',"H", InputOption::VALUE_OPTIONAL, "Server hostname (default: 127.0.0.1).", '127.0.0.1')
+            ->addOption('port',"p", InputOption::VALUE_OPTIONAL, " Server port (default: 6379).", 6379)
+            ->addOption('password',"a", InputOption::VALUE_OPTIONAL, "Password to use when connecting to the server.", '')
+            ->addOption('socket',"s", InputOption::VALUE_OPTIONAL, "Server socket (overrides hostname and port).", '')
+            ->addOption('db',null, InputOption::VALUE_OPTIONAL, "Database number.", 0)
+            ->setDescription('<info>PHP 的 Redis 命令行客户端。</info>');
     }
 
     public function execute(InputInterface $input, OutputInterface $output)
@@ -56,7 +114,7 @@ class RedisCommand extends SymfonyCommand
         $io = new CustomStyle($input, $output);
         $this->io = $io;
 
-        $this->connRedis();
+        $this->connRedis($input, $output);
         $host = $this->host;
         $port = $this->port;
 
@@ -69,7 +127,7 @@ class RedisCommand extends SymfonyCommand
             try {
                 $this->redis->ping();
             } catch (\Exception $exception) {
-                $this->redis->connect($host, $port);
+                $this->redis->connect();
             }
 
             // 处理命令行逻辑
@@ -82,18 +140,24 @@ class RedisCommand extends SymfonyCommand
                 case stripos($command, 'info') === 0 :
                     // 只弄一个方便阅读配置文件,不打算支持修改
                     $parameter = trim(substr($command, 4));
-                    $this->getInfo($parameter);
+                    $this->getInfo(empty($parameter) ? '' : $parameter);
                     break;
                 case stripos($command, 'select ') === 0 :
                     // 切换数据库
                     $parameter = trim(substr($command, 7));
                     $result = $this->redis->select($parameter);
-                    if ($result === true) {
+                    $this->db = $parameter;
+                    if ($result->getPayload() === "OK") {
                         $this->db = $parameter;
                         $this->io->success('数据库切换成功!');
                     } else {
                         $this->io->error('数据库切换失败!');
                     }
+                    break;
+                case stripos($command, 'keys') === 0 :
+                    $parameter = trim(substr($command, 4));
+                    // 先写这里,回头再抽象
+                    $this->listTable($parameter);
                     break;
                 case stripos($command, 'ls') === 0 :
                     $parameter = trim(substr($command, 2));
@@ -145,7 +209,8 @@ class RedisCommand extends SymfonyCommand
                     $io->title('Help List 命令列表');
                     $io->listing([
                             'help : 显示可用命令',
-                            'select < 0 > : 切换数据库,默认0 ',
+                            'select [0] : 切换数据库,默认0 ',
+                            'keys : 列出所有keys',
                             'ls : 列出所有keys',
                             'ls h?llo : 列出匹配keys,?通配1个字符,*通配任意长度字符,[aei]通配选线,特殊符号用\隔开',
                             'ttl key [ttl second] : 获取/设定生存时间,传第二个参数会设置生存时间',
@@ -156,7 +221,6 @@ class RedisCommand extends SymfonyCommand
                             'set key : 设置值',
                             'config  [dir]: 获取配置,可选参数[配置名称(支持通配符)]',
                             'info: 获取当前Redis服务器信息',
-
                         ]
                     );
 
@@ -199,29 +263,48 @@ class RedisCommand extends SymfonyCommand
         return $command;
     }
 
-    protected function connRedis()
+    protected function connRedis(InputInterface $input, OutputInterface $output)
     {
-        $this->redis = new \Redis();
-
         do {
             // 输入服务器和port
-            $this->host = $host = $this->autoAsk('Redis服务器host', '127.0.0.1', ['127.0.0.1']);
-            $this->port = $port = $this->autoAsk('Redis服务器port', '6379', ['6379']);
-            // TODO: 输入密码..
-            //            $this->redis->auth();
+            $this->host = $host = $input->getOption('hostname'); // $this->autoAsk('Redis服务器host', '127.0.0.1', ['127.0.0.1']);
+            $this->port = $port = $input->getOption('port'); // $this->autoAsk('Redis服务器port', '6379', ['6379']);
+            $this->password = $password = $input->getOption('password');
+            $this->socket = $socket = $input->getOption('socket');
+            $this->db = $db = (int) $input->getOption('db');
 
-            $connResult = @$this->redis->connect($host, $port);
-            if (!$connResult) {
-                $this->io->error("连接服务器 {$host}:{$port} 失败!");
+            if(empty($socket)){
+                $config = [
+                    'scheme' => 'tcp',
+                    'host'   => $host,
+                    'port'   => $port,
+                    'database' => $db
+                ];
+            }else{
+                $config = ['scheme' => 'unix', 'path' => $socket, 'database' => $db];
             }
-
-        } while ($connResult != true);
+            if(!empty($password)){
+                $config['password'] = $password;
+            }
+            try{
+                $this->redis = new Predis($config);
+                $this->redis->ping();
+                $conn = $this->redis->isConnected();
+                if(!$conn){
+                    dump($conn);
+                    sleep(1);
+                }
+            } catch (ServerException $e) {
+                $this->io->error('redis error:'. $e->getMessage());
+                exit;
+            }
+        } while ($conn != true);
 
 
         // 连接服务器
         $this->io->success("连接服务器 {$host}:{$port} 成功!");
         // 默认使用 0 号数据库
-        $this->db = 0;
+        $this->db = $db;
         $info = $this->redis->info();
         if (key_exists('redis_version', $info)) {
             $this->version = $info['redis_version'];
@@ -255,18 +338,24 @@ class RedisCommand extends SymfonyCommand
         $this->io->table(['ITEM', 'VALUE'], $data);
     }
 
-    protected function getInfo($parameter)
+    protected function getInfo($parameter = null)
     {
-        $info = $this->redis->info();
-
-        $data = [];
-        foreach ($info as $k => $item) {
-            $data[] = [
-                $k, $item,
-            ];
+        if(empty($parameter)){
+            $info = $this->redis->info();
+        }else{
+            $info = $this->redis->info($parameter);
         }
-        $this->io->section("INFO:");
-        $this->io->table(['ITEM', 'VALUE'], $data);
+
+        foreach ($info as $key => $items) {
+            $data = [];
+            foreach ($items as $k => $v){
+                $data[] = [$k, is_string($v) ? $v : http_build_query($v, '', ',')];
+            }
+            $this->io->section($key." INFO:");
+            if(!empty($data)){
+                $this->io->table(['ITEM', 'VALUE'], $data);
+            }
+        }
     }
 
     // 获取列表和key对应的类型,并返回表格
@@ -278,15 +367,17 @@ class RedisCommand extends SymfonyCommand
         // 换个方式,大于2.8.0那么使用Scan搜索
         if (version_compare($this->version, '2.8.0')) {
             $iterator = null;
-            while ($keys = $this->redis->scan($iterator, $search, $this->pageNumber)) {
+            while ($result = $this->redis->scan($iterator, ['MATCH' => $search, 'COUNT0' => $this->pageNumber])) {
                 $data = [];
-                foreach ($keys as $key) {
+                foreach ($result[1] as $key) {
+//                    dump(get_class($key));
                     $type = $this->redis->type($key);
-                    if ($type == 0) {
+                    if ($type->getPayload() == "none") {
+//                    if ($type == 0) {
                         continue;//不存在那么就直接跳过
                     }
                     // 根据类型显示颜色
-                    $type = $this->transType($type);
+                    $type = $this->transType($type->getPayload());
                     $data[$key] = [$type, $key];
                     $this->keys[] = $key;
                 }
@@ -296,11 +387,13 @@ class RedisCommand extends SymfonyCommand
                 );
                 $this->keys = array_unique($this->keys);
                 // 最后一页不用了.
-                if (count($data) >= $this->pageNumber) {
+                if ($result[0] > 0) {
                     $isBreak = $this->io->confirm('回车继续...');
                     if (!$isBreak) {
                         return true;
                     }
+                }else {
+                    break;
                 }
                 $this->keys = array_unique($this->keys);
 
@@ -348,18 +441,23 @@ class RedisCommand extends SymfonyCommand
     {
         switch ($type) {
             case 1:
+            case "string":
                 $type = '<fg=black;bg=cyan>STRING</>';
                 break;
             case 2:
+            case "set":
                 $type = '<fg=black;bg=green>SET   </>';
                 break;
             case 3:
+            case "list":
                 $type = '<fg=black;bg=yellow>LIST  </>';
                 break;
             case 4:
+            case "zset":
                 $type = '<fg=black;bg=blue>ZSET  </>';
                 break;
             case 5:
+            case "hash":
                 $type = '<fg=black;bg=magenta>HASH  </>';
                 break;
         }
