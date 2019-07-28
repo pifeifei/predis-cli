@@ -7,8 +7,7 @@
  * Time: 10:45 AM
  */
 
-namespace Console;
-
+namespace Pifeifei\PredisCli;
 
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\BufferedOutput;
