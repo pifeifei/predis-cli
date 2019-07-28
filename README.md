@@ -14,7 +14,7 @@
  - 原因2: Medis客户端收费了,同事想用发现找个简单操作的没有. 吹牛说自己写一个,于是填坑. 
 
 ## 安装方法1(推荐)
-  1. 打开 https://github.com/wizarot/redis-cli/releases
+  1. 打开 https://github.com/pifeifei/predis-cli/releases/
   2. 下载最新版本的 predis-cli.phar (建议放到 php 的 bin 目录)
   3. php 目录添加到 PATH，不懂的百度
   4. linux : ln -s /path/to/php/bin/predis-cli.phar /usr/bin/predis-cli
