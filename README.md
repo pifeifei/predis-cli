@@ -1,7 +1,7 @@
 # PHP 写的简单 Redis 客户端
 
 ## 是什么
-
+![image](doc/help.jpg)
 ![image](doc/pic1.jpg)
 
  - 简单操作redis的命令行工具
@@ -13,22 +13,40 @@
  - 原因1: 每次做点简单的Redis操作都要翻手册,嫌麻烦. 所以把基本功能做了下简化
  - 原因2: Medis客户端收费了,同事想用发现找个简单操作的没有. 吹牛说自己写一个,于是填坑. 
 
-## 安装方法
-  1. clone项目代码:  git clone https://github.com/wizarot/redis-cli.git
-  2. 进入文件件:  cd redis-cli
+## 安装方法1(推荐)
+  1. 打开 https://github.com/wizarot/redis-cli/releases
+  2. 下载最新版本的 predis-cli.phar (建议放到 php 的 bin 目录)
+  3. php 目录添加到 PATH，不懂的百度
+  4. linux : ln -s /path/to/php/bin/predis-cli.phar /usr/bin/predis-cli
+  5. window: @"%~dp0php" "%~dp0predis-cli.phar" %* > /path/to/php/predis-cli.bat
+
+## 安装方法2
+  1. clone项目代码:  git clone https://github.com/pifeifei/predis-cli.git
+  2. 进入文件件:  cd predis-cli
   3. 切换到当前最新版本tag:  git checkout v1.3.2
   4. 使用composer安装依赖包: composer update
+  5. ./bin/predis-cli
+  6. 这种方法只能在当前目录使用，不推荐
 
 ## 使用方法
- - 启动: ./redis-cli
- - windows启动: redis-cli.bat (可能需要自行编辑一下,手动修改php.exe文件的路径)
- - 输入redis连接: host port (可以启用auth输入密码,如果有需要自己去src/RedisCommand.php -> connRedis() 修改 )
- - help 或者 随意输入别的,显示帮助列表
- - exit 或者 ctrl+D 退出
- - 需要php安装redis扩展. 如果实在没有那考虑自己引入pRedis bundle然后改一下 connRedis()函数就能用了,不会提issue.我抽空处理
- - 可以自定义样式,复制config/style.php 到 config/customStyle.php 自己修改相应颜色
- - 可用颜色: [default, black, red, green, yellow, blue, magenta, cyan, white]
- 
+```shell
+# 查看可用参数
+predis-cli --help
+
+# 链接
+predis-cli -H127.0.0.1 --db=2
+
+# 查看帮助
+127.0.0.1 [2]: help 
+
+# 退出
+127.0.0.1 [2]: exit
+
+# - 内置 predis 扩展
+# - 可以自定义样式,复制config/style.php 到 config/customStyle.php 自己修改相应颜色
+# - 可用颜色: [default, black, red, green, yellow, blue, magenta, cyan, white]
+```
+
  ## 特性 (如果有需求或者其他想法可以提issue)
  - (v1.2新特性)输入模仿Linux可以记录命令历史和自动帮助,上下箭头查看历史记录. (小功能但是方便了很多!)
  - 用ls列出当前数据key和对应数据类型
@@ -49,9 +67,12 @@
  使用上有什么问题也可以随时问.
  
  ## TODO
-
+  - [ ] 打算弄成与 redis-cli 功能类似客户端
   - [x] 用scan代替get * 防止出现查死数据库的情况
   - [x] 完善自动填写功能,如果没有考虑自己加一个
   - [x] 完善上下箭头访问命令历史功能
   - [x] 完善windows命令行可执行文件使用 (有待测试和调整)
   - [x] 把显示颜色样式从项目中抽象出来放到配置文件中,方便用户自己微调
+
+
+感谢 @wizarot
